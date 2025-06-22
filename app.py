@@ -7,8 +7,8 @@ import openai
 import PyPDF2
 
 # Load environment variables
-load_dotenv()
-openai.api_key = os.getenv("openai.api_key")
+openai.api_key = st.secrets["OPENAI_API_KEY"]
+
 
 # Load PDF content from local file
 def load_pocket_text(pdf_path="Hyponatremia_PocketNephrology_Pages218_225.pdf"):
