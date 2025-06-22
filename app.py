@@ -6,6 +6,10 @@ from dotenv import load_dotenv
 import openai
 import PyPDF2
 
+# Load environment variables
+load_dotenv()
+openai.api_key = os.getenv("openai.api_key")
+
 # Load PDF content from local file
 def load_pocket_text(pdf_path="Hyponatremia_PocketNephrology_Pages218_225.pdf"):
     try:
@@ -17,9 +21,6 @@ def load_pocket_text(pdf_path="Hyponatremia_PocketNephrology_Pages218_225.pdf"):
         return text.strip()
     except Exception as e:
         return f"Error loading PDF: {e}"
-
-# Load API key from environment or hardcode here
-openai.api_key = "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"
 
 # Load PDF content
 pocket_text = load_pocket_text()
@@ -53,8 +54,8 @@ def log_response(step, case, selected, correct, gpt_feedback):
         df.to_csv("quiz_log.csv", index=False)
 
 # Streamlit interface setup
-st.set_page_config(page_title="SmartRounds: Hyponatremia Tutor", layout="centered")
-st.title("🧠 SmartRounds: Hyponatremia Teaching Module")
+st.set_page_config(page_title="Hyponatremia Module", layout="centered")
+st.title("🧠 Hyponatremia Module")
 
 if "step" not in st.session_state:
     st.session_state.step = 1
@@ -201,3 +202,4 @@ if st.button("Ask"):
         st.info(followup_response)
     else:
         st.warning("Please type a question before clicking Ask.")
+
