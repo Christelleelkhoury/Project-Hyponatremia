@@ -1,19 +1,14 @@
 import streamlit as st
 import pandas as pd
 import os
-import base64
-import requests
 from datetime import datetime
 from dotenv import load_dotenv
 import openai
 import PyPDF2
 
 # Load environment variables
-load_dotenv()
 openai.api_key = st.secrets["OPENAI_API_KEY"]
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-GITHUB_USERNAME = os.getenv("GITHUB_USERNAME")
-GITHUB_REPO = os.getenv("GITHUB_REPO")
+
 
 # Load PDF content from local file
 def load_pocket_text(pdf_path="Hyponatremia_PocketNephrology_Pages218_225.pdf"):
@@ -27,8 +22,10 @@ def load_pocket_text(pdf_path="Hyponatremia_PocketNephrology_Pages218_225.pdf"):
     except Exception as e:
         return f"Error loading PDF: {e}"
 
+# Load PDF content
 pocket_text = load_pocket_text()
 
+# Ask GPT with context-restricted answers
 def ask_gpt(user_input):
     response = openai.chat.completions.create(
         model="gpt-4",
@@ -40,107 +37,168 @@ def ask_gpt(user_input):
     )
     return response.choices[0].message.content
 
-def push_to_github(file_name, file_content):
-    try:
-        url = f"https://api.github.com/repos/{GITHUB_USERNAME}/{GITHUB_REPO}/contents/logs/{file_name}"
-        headers = {
-            "Authorization": f"token {GITHUB_TOKEN}",
-            "Accept": "application/vnd.github.v3+json"
-        }
-        message = f"Add session log {file_name}"
-        data = {
-            "message": message,
-            "content": base64.b64encode(file_content.encode()).decode("utf-8")
-        }
-        response = requests.put(url, json=data, headers=headers)
-        if response.status_code == 201:
-            return "✅ Session log uploaded to GitHub."
-        else:
-            return f"❌ Failed to upload log: {response.json()}"
-    except Exception as e:
-        return f"❌ GitHub upload error: {e}"
+# Logging quiz attempts
+def log_response(step, case, selected, correct, gpt_feedback):
+    log_entry = {
+        "timestamp": datetime.now(),
+        "step": step,
+        "case": case,
+        "selected": selected,
+        "correct": correct,
+        "gpt_feedback": gpt_feedback
+    }
+    df = pd.DataFrame([log_entry])
+    if os.path.exists("quiz_log.csv"):
+        df.to_csv("quiz_log.csv", mode='a', header=False, index=False)
+    else:
+        df.to_csv("quiz_log.csv", index=False)
 
-st.set_page_config(page_title="Hyponatremia GPT Tutor", layout="centered")
-st.title("💬 Hyponatremia Learning Module (GPT Tutor)")
+# Streamlit interface setup
+st.set_page_config(page_title="Hyponatremia Module", layout="centered")
+st.title("🧠 Hyponatremia Module")
 
 if "step" not in st.session_state:
-    st.session_state.step = 0
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-if "responses" not in st.session_state:
-    st.session_state.responses = []
-if "show_sidebar" not in st.session_state:
-    st.session_state.show_sidebar = True
-
-if st.session_state.show_sidebar:
-    with st.sidebar:
-        st.header("📋 Navigation")
-        for i, (case_text, _) in enumerate([
-            ("Step 1", ""),
-            ("Step 2", ""),
-            ("Step 3", ""),
-            ("Step 4", ""),
-            ("Bonus Case", ""),
-            ("Challenge Case", "")
-        ]):
-            if st.button(case_text, key=f"sidebar_{i}"):
-                st.session_state.step = i
+    st.session_state.step = 1
 
 def next_step():
     st.session_state.step += 1
 
-def run_case(case_text, question_prompt):
-    st.markdown(case_text)
-    user_input = st.text_input("Your response:", key=f"input_{st.session_state.step}")
-    if st.button("Submit", key=f"submit_{st.session_state.step}"):
-        gpt_response = ask_gpt(question_prompt + "\nUser answer: " + user_input)
-        st.session_state.chat_history.append((user_input, gpt_response))
-        st.session_state.responses.append({
-            "step": st.session_state.step,
-            "case": case_text,
-            "answer": user_input,
-            "feedback": gpt_response,
-            "timestamp": datetime.now().isoformat()
-        })
-        st.markdown("#### 🧠 GPT Feedback:")
-        st.info(gpt_response)
-        takehome = ask_gpt("Give a one-line take-home point for:\n" + gpt_response)
-        st.markdown("**📌 Take-home Point:**")
-        st.success(takehome)
+# Step 1
+if st.session_state.step == 1:
+    st.header("Step 1: Serum Osmolality – Classify Hyponatremia")
+    st.markdown("""
+**Case 1**  
+A 70-year-old woman presents with nausea and mild confusion.  
+Labs:  
+- Serum sodium = 120 mmol/L  
+- Serum osmolality = 260 mOsm/kg  
+
+What type of hyponatremia does she have?
+""")
+    options = [
+        "1. Isotonic hyponatremia",
+        "2. Hypertonic hyponatremia",
+        "3. Hypotonic hyponatremia"
+    ]
+    correct = "3. Hypotonic hyponatremia"
+    selected = st.radio("Choose your answer:", options, key="q1")
+    if st.button("Submit", key="submit1"):
+        if selected == correct:
+            st.success("✅ Correct!")
+            explanation = ask_gpt("Why is hyponatremia with sodium 120 and osmolality 260 classified as hypotonic?")
+        else:
+            st.error("❌ Not quite.")
+            explanation = ask_gpt(f"Why is sodium 120 and osmolality 260 not isotonic or hypertonic? They chose: {selected}")
+        st.markdown("#### 🧠 GPT Explanation:")
+        st.info(explanation)
+        log_response("Step 1", "Case 1", selected, selected == correct, explanation)
         st.button("Next", on_click=next_step)
 
-step_prompts = [
-    ("""🔹 Step 1 – Classify Hyponatremia by Serum Osmolality\n\n**Case 1A:**\nA 60-year-old man presents with fatigue and poor appetite.\nNa: 128, Glucose: 100, Serum Osm: 285 mOsm/kg\n\nHow would you classify his hyponatremia?""", "Classify the hyponatremia based on osmolality."),
-    ("""🔹 Step 2 – Urine Osmolality: Assess ADH Activity\n\n**Case 2A:**\n70F with Na 118, Serum Osm 250, Urine Osm 90 mOsm/kg\n\nWhat does this urine osmolality suggest about ADH activity?""", "Interpret ADH activity from urine osmolality of 90 mOsm/kg."),
-    ("""🔹 Step 3 – Urine Sodium: Assess Volume Status\n\n**Case 3A:**\n50M, Serum Osm 260, Urine Osm 450, Urine Na 10, BP 100/65, K 2.8\n\nWhat is the most likely cause of hyponatremia?""", "Diagnose cause based on urine sodium and volume status."),
-    ("""🔹 Step 4 – Endocrine Evaluation\n\n**Case 3B:**\n65F on prednisone, Na 125, K 5.0, Cortisol 1.5, TSH normal\nUrine Osm 620, Urine Na 60\n\nWhat is the most likely cause of her hyponatremia?""", "Interpret this endocrine profile in the setting of hyponatremia."),
-    ("""🔹 Bonus Case\n\n**Case 4:**\n45F on carbamazepine, Na 122, Serum Osm 260, Urine Osm 550, Urine Na 55\nCortisol and TSH normal\n\nWhat is the likely cause?""", "Explain diagnosis based on labs and carbamazepine use."),
-    ("""🔹 Challenge Case\n\n**Case 5:**\n55M with cirrhosis, Na 124, Serum Osm 255, Urine Osm 480, Urine Na 10\nAscites and leg edema present.\n\nWhat is the cause of hyponatremia?""", "Explain why this case is hypervolemic hyponatremia.")
-]
-
-if st.session_state.step < len(step_prompts):
-    case_text, prompt = step_prompts[st.session_state.step]
-    run_case(case_text, prompt)
-else:
-    st.success("🎉 You've completed the GPT-based module!")
+# Step 2
+elif st.session_state.step == 2:
+    st.header("Step 2: Urine Osmolality – Assess ADH Activity")
     st.markdown("""
-✅ [Final Quiz Link](https://docs.google.com/forms/d/e/1FAIpQLSez8wsB11GlxQQXZJTcg9f4Tl2UVWVVOfIyaJ5DAvBf--ZjGg/viewform)  
-✅ [Feedback Survey](https://docs.google.com/forms/d/e/1FAIpQLSctPN-os8uZJc0Iwvpq4iafBuB-H600e5jqgDJBtk-AYrnRvg/viewform)
-    """)
-    df = pd.DataFrame(st.session_state.responses)
-    st.download_button("📥 Download Session Log", df.to_csv(index=False), file_name="hyponatremia_session_log.csv")
+**Case 2**  
+A 65-year-old man with low sodium has:  
+- Serum osmolality = 260  
+- Urine osmolality = 80  
 
-    if st.button("📤 Upload Session Log to GitHub"):
-        filename = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        result = push_to_github(filename, df.to_csv(index=False))
-        st.info(result)
-
-    st.markdown("#### 💬 Still have questions?")
-    followup = st.text_input("Ask GPT something else:", key="followup")
-    if st.button("Ask GPT", key="ask_followup"):
-        if followup.strip():
-            answer = ask_gpt(followup)
-            st.markdown("#### 🧠 GPT says:")
-            st.info(answer)
+What does this suggest about ADH activity?
+""")
+    options = [
+        "1. ADH is not active → suggestive of primary polydipsia or low solute intake",
+        "2. ADH is highly active → suggestive of SIADH",
+        "3. Urine osmolality is not helpful here"
+    ]
+    correct = options[0]
+    selected = st.radio("Choose your answer:", options, key="q2")
+    if st.button("Submit", key="submit2"):
+        if selected == correct:
+            st.success("✅ Correct!")
+            explanation = ask_gpt("Why does urine osmolality of 80 indicate ADH is not active?")
         else:
-            st.warning("Please enter a question.")
+            st.error("❌ Try again.")
+            explanation = ask_gpt(f"Why is ADH not considered active with urine osmolality of 80? They chose: {selected}")
+        st.markdown("#### 🧠 GPT Explanation:")
+        st.info(explanation)
+        log_response("Step 2", "Case 2", selected, selected == correct, explanation)
+        st.button("Next", on_click=next_step)
+
+# Step 3
+elif st.session_state.step == 3:
+    st.header("Step 3: Urine Sodium – Assess Volume Status")
+    st.markdown("""
+**Case 3**  
+A 75-year-old woman has low sodium.  
+Findings:  
+- Serum osmolality = 260  
+- Urine osmolality = 500  
+- Urine sodium = 10  
+She has dry mucous membranes and orthostatic hypotension.
+
+What is the likely volume status?
+""")
+    options = [
+        "1. Hypovolemia → low urine Na due to RAAS activation",
+        "2. SIADH → low urine Na",
+        "3. Volume status unclear without weight"
+    ]
+    correct = options[0]
+    selected = st.radio("Choose your answer:", options, key="q3")
+    if st.button("Submit", key="submit3"):
+        if selected == correct:
+            st.success("✅ Correct!")
+            explanation = ask_gpt("Why do low urine sodium and orthostatic symptoms suggest hypovolemia?")
+        else:
+            st.error("❌ Think RAAS.")
+            explanation = ask_gpt(f"Why does low urine sodium in this case not suggest SIADH? They chose: {selected}")
+        st.markdown("#### 🧠 GPT Explanation:")
+        st.info(explanation)
+        log_response("Step 3", "Case 3", selected, selected == correct, explanation)
+        st.button("Next", on_click=next_step)
+
+# Step 4 – Summary Table
+elif st.session_state.step == 4:
+    st.header("Step 4: Diagnostic Framework Summary (From Pocket Nephrology)")
+    st.markdown("""
+| **Test**              | **Finding**                        | **Interpretation**                                       |
+|-----------------------|-------------------------------------|-----------------------------------------------------------|
+| Serum Osm             | > 295                              | Hypertonic hyponatremia (e.g., hyperglycemia, mannitol)   |
+|                       | 275–295                            | Isotonic (pseudohyponatremia: lab artifact)               |
+|                       | < 275                              | Hypotonic → proceed to next step                          |
+| Urine Osm             | < 100                              | ADH not active → primary polydipsia, low solute intake    |
+|                       | > 100                              | ADH active → volume depletion, SIADH, endocrine causes     |
+| Urine Na              | < 20                               | Volume depletion (vomiting, diarrhea, diuretics early)    |
+|                       | > 40                               | SIADH, adrenal insufficiency, hypothyroidism              |
+""")
+    st.success("📘 This table reflects the Pocket Nephrology stepwise approach to diagnosing hyponatremia.")
+    st.button("Next: Final Quiz & Survey", on_click=next_step)
+
+# Step 5 – Final Quiz
+elif st.session_state.step == 5:
+    st.header("Step 5: Final Quiz & Feedback")
+    st.markdown("""
+🎉 You’ve completed the guided hyponatremia module!  
+
+Now test your knowledge and share feedback:
+
+📌 [Take the Final Quiz](https://docs.google.com/forms/d/e/1FAIpQLSez8wsB11GlxQQXZJTcg9f4Tl2UVWVVOfIyaJ5DAvBf--ZjGg/viewform?usp=header)  
+📌 [Complete the Feedback Survey](https://docs.google.com/forms/d/e/1FAIpQLSctPN-os8uZJc0Iwvpq4iafBuB-H600e5jqgDJBtk-AYrnRvg/viewform?usp=header)
+
+To help us improve:
+- In ChatGPT, click ⋮ > "Share & Export"
+- Paste the session link in the survey form
+
+Thank you for participating!
+""")
+
+# GPT Follow-up Box
+st.markdown("#### 💬 Still have questions?")
+followup = st.text_input("Ask GPT to clarify something based on this case:")
+if st.button("Ask"):
+    if followup.strip():
+        followup_response = ask_gpt(followup)
+        st.markdown("#### 🧠 GPT Follow-up Answer:")
+        st.info(followup_response)
+    else:
+        st.warning("Please type a question before clicking Ask.")
